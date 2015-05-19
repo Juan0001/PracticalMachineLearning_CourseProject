@@ -1,0 +1,95 @@
+---
+title: "Personal Activity Prediction "
+author: "Juan Luo"
+date: "May 13, 2015"
+output: html_document
+---
+## Summary
+By using devices like Jawbone Up, Fitbit or Nike FuelBand, it's possible to quantify how much a particular activity were done by a person. However, it's very hard for these devices to tell if this activity is correctly performed. By collecting data from participants performing barbell lifts in both correct and uncorrect ways, we will be able to tell if a correct activity is performed. 
+To predict the correct way of barbell lifting, I used the data from the [Human Activity Recognition (HAR)](http://groupware.les.inf.puc-rio.br/har) website. After priliminary examination of the data set, several columns with not much information were deleted. The prediction model was trained by the train function in caret package with random forest method, 10-fold cross validation and standardized data.
+
+## Data preprocessing
+### Delete variables with large amount of missing data
+The initial explore of the data revealed that there are lots of missing data in some of the variables in both train (97.93% per missing variable) and test (100% per missing variable) data sets. I decided to delete these variables from the data. And I also deleted the variables "X and user_name", since they are just ids and names of the testers.
+
+```{r deleteVariables, echo=FALSE, results='hide', fig.show='hide', message=FALSE, warning=FALSE}
+## load data sets
+train <- read.csv("pml-training.csv")
+test <- read.csv("pml-testing.csv")
+
+## check missing data 
+library(VIM)
+trainMiss <- aggr(train)
+testMiss <- aggr(test)
+
+## extract variable names with missing data
+trainVar <- data.frame(trainMiss[5])
+testVar <- data.frame(testMiss[5])
+trainMissVar <- subset(trainVar, missings.Count != 0)
+testMissVar<- subset(testVar, missings.Count != 0)
+missVar <- merge(trainMissVar, testMissVar, by.x="missings.Variable", by.y="missings.Variable", all=TRUE)$missings.Variable
+
+## delete columns with missing value in either train or test
+trainNew <- train[, !(colnames(train) %in% missVar)]
+testNew <- test[, !(colnames(test) %in% missVar)]
+
+## delete columns with ids and user names
+trainNew$X <- NULL
+trainNew$user_name <- NULL
+testNew$X <- NULL
+testNew$user_name <- NULL
+```
+
+### Histogram plot of all possible numeric predictors
+```{r histogram, message=FALSE, fig.height=10, fig.width=10, warning=FALSE}
+library(ggplot2)
+library(reshape)
+
+data <- melt(trainNew[,-c(3,4,58)])
+g <- ggplot(data, aes(x=value))
+p <- g + facet_wrap(~ variable, scales="free_x") + geom_histogram()
+print(p)
+```
+
+As we can see from the picture that most of the predictors are skewed, a standardize method will need to be used when training for the predicition model.
+
+## Model training
+I will use the train function in caret package to train the model. The random forest method will be used in the model. The preProc parameter in the train function can be used to set up the data preprocessing method. The trControl parameter in the train function can be used to set up the cross validation method.
+
+### Train a model with 10-fold cross validation
+```{r modelTrain}
+library(randomForest)
+library(caret)
+set.seed(123)
+fitControl <- trainControl(method="cv", number=10, repeats=10)
+rfFit <- train(classe ~ ., data=trainNew, method="rf", trControl=fitControl,verbose=FALSE, preProc=c("center","scale"), metri="ROC")
+rfFit
+```
+
+From the model we can see that with mtry=38, the model have highest accuracy in the training data which can also be shown in the follwing figure.
+
+```{r}
+library(caret)
+trellis.par.set(caretTheme())
+plot(rfFit, col="red")
+```
+
+The details of the final model is as follows:
+
+```{r}
+rfFit$finalModel
+```
+
+The number of trees built in the final model are 500 and the out of sample error rate is 0.03% which indicates that this is a very good model.
+
+## Predicting the test data set
+
+```{r prediction}
+pred <- predict(rfFit, newdata=testNew)
+pred
+```
+
+## References
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3aLdXkTxt
